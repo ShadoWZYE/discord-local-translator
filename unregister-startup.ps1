@@ -7,4 +7,3 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 } else {
     Write-Host "Startup task is not registered."
 }
-

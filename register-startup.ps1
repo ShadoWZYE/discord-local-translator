@@ -33,4 +33,3 @@ Register-ScheduledTask `
     -Force | Out-Null
 
 Write-Host "Startup task registered: $TaskName" -ForegroundColor Green
-
