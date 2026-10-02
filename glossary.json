@@ -1,0 +1,35 @@
+{
+  "en": {
+    "ping someone": "message/contact them, not literally call them",
+    "wrap this up": "finish what I am doing",
+    "acting up": "malfunctioning or behaving unreliably",
+    "build": "software build in software or bot context",
+    "as close as I can get it to work": "the best functioning result I can achieve: лучшее, чего я могу добиться; not physical proximity",
+    "nifty thing": "a handy or neat feature: удобная фишка",
+    "flag a translation": "mark/report a problematic translation: пометить неудачный перевод",
+    "it fucks up": "it messes up or malfunctions: накосячит; preserve informal profanity without adding an insult",
+    "whatever the fuck Google was doing": "an emphatic complaint about Google's results: та хрень, которую выдавал Google; never insert твою мать",
+    "you're gonna have to tell me your opinion": "a casual request for the listener's opinion: расскажешь мне, что думаешь; not ты обязана",
+    "falls onto you": "in a friendly request, that part is up to you: тут я полагаюсь на тебя; not blame",
+    "my dear Mistress": "affectionate feminine address: моя дорогая Госпожа; preserve warmth and the title",
+    "tongue twister": "скороговорка is feminine: let me try a basic Slavic tongue twister = дай попробую простую славянскую скороговорку; use feminine adjective agreement",
+    "semi-skimmed": "milk with some fat removed: полуобезжиренное молоко; skimmed = обезжиренное, whole = цельное. Keep these choices in the exact source order; do not invent fat percentages"
+  },
+  "ru": {
+    "не горит": "not urgent / no rush when discussing timing",
+    "сборка": "software build in software or bot context",
+    "билд": "software or game build",
+    "отпишусь": "I'll get back to you / let you know",
+    "скинь": "send me / drop me",
+    "Да, пожалуйста": "Yes, please: accepting an offer or requesting something, not granting permission with Sure, go ahead",
+    "Пойдет?": "When asking whether the preceding wording or result is acceptable: Will that do? / Is that okay? Do not invent a dating invitation. Use a motion meaning only if the source context describes going somewhere",
+    "Пойдёт?": "When asking whether the preceding wording or result is acceptable: Will that do? / Is that okay? Do not invent a dating invitation. Use a motion meaning only if the source context describes going somewhere",
+    "стоит поменять": "Impersonal suggestion: it would be worth changing / it is worth changing. Do not invent you should or an owner your/my where the source does not name one",
+    "сделаю": "First-person singular future: I will make/do. With сама, the female speaker does it herself: I will make it myself, never you do it yourself. тебе is the recipient for you, not the acting subject",
+    "сама": "Emphatic reflexive: resolve its subject from verb person and sentence grammar. With first-person сделаю and omitted я, use myself; with second-person сделаешь use yourself. Do not attach it automatically to тебе or хочешь",
+    "спс": "Common chat abbreviation for спасибо: thanks. о спс means oh, thanks",
+    "в майн го": "Casual gaming invitation: let's play Minecraft / let's hop into Minecraft, not go to Maine or a literal mine",
+    "р4": "In an alliance/game conversation, rank-four officers: R4s / R4 officers. Preserve the rank identifier, not a road or unrelated code",
+    "дописаться": "Reach/get through to someone by messaging them, not finish writing"
+  }
+}
