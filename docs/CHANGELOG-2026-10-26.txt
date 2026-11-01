@@ -1,0 +1,23 @@
+TRANSLATOR PIPELINE - 26 OCTOBER 2026
+
+- Added actual native prompt-cache, prefill and generation telemetry, separate
+  from translation-result cache hits. Missing telemetry is shown as unavailable.
+- Moved unchanged context-safety instructions before dynamic prompt data so the
+  runtime can reuse a larger invariant prefix. No context or fidelity rules removed.
+- Benchmarked a shorter prompt; rejected it because the removed tokens were
+  largely already cached. It is not enabled in production.
+- Extended guarded incremental edit eligibility to shorter aligned messages,
+  retaining neighbor/dependency expansion, participant stability, current-policy,
+  live-output and flagged-source checks, plus the regenerated-block size cutoff.
+- Fixed incremental reuse accounting: unchanged source characters now appear
+  in request audits and delivered-result metrics instead of being reported as zero.
+- Added focused regression coverage. Full suite: 517 tests passed; diff check clean.
+- Synthetic local-model samples are not a live hit rate or end-to-end speedup.
+  Later timing samples were affected by live traffic and were not used as proof.
+- Preserved existing cache entries, approval receipts and maintenance schedules.
+- Deployed after a fresh 517-test run and clean diff check. Translator-only
+  restart verified with one fresh gateway Ready, one worker and new telemetry.
+  No end-to-end latency improvement is claimed yet.
+- Corrected three further flagged posts through source-first evidence approval;
+  independently verified exact live text, unchanged sources/grouping/attachments,
+  regeneration markers and flag removal. No new portable lexical scope approved.

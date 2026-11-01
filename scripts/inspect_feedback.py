@@ -18,6 +18,9 @@ with requests.Session() as session:
             raise RuntimeError('Report missing or outside allowed servers.')
         print('REPORT', report_id)
         link = store.get_translation_link(report['translation_message_id'])
+        if link is None:
+            print('Translation no longer linked; source/post may have been deleted. Report retained.')
+            continue
         for message_id in store.get_batch_sources(link['source_message_id']):
             response = session.get(f'https://discord.com/api/v10/channels/{report["channel_id"]}/messages/{message_id}', timeout=30)
             if response.status_code != 200:

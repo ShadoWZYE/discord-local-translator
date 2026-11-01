@@ -89,7 +89,11 @@ class TemporaryDeliveryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reading_timer_starts_after_queue_wait(self):
         self.bot.store.add_temporary(80, 1, 20, 70, 'en', 'ro', 0, [30])
-        with patch('translator_bot.bot.time.time', side_effect=[1000, 2000]):
+        with patch('translator_bot.bot.time.time', return_value=1000) as clock:
+            def translated(*args):
+                clock.return_value = 2000
+                return TranslationResult('en', 'ro', 'Acesta este un mesaj de test.')
+            self.bot.translator.translate_to.side_effect = translated
             await self.bot.deliver_flag_translation(self.message, [30], 50, 'ro')
         self.assertEqual(self.bot.store.temporary_posts()[0]['expires_at'], 2090)
 

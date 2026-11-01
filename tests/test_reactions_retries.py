@@ -1,4 +1,5 @@
 import tempfile
+import json
 import time
 import unittest
 import discord
@@ -13,6 +14,22 @@ from translator_bot.storage import SettingsStore
 
 
 class ReactionRetryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_country_flag_posts_use_server_identity_for_every_chunk(self):
+        author=Mock(spec=discord.User)
+        author.id=40
+        author.display_name='Account name'
+        self.source.author=author
+        member=SimpleNamespace(display_name='Server nickname',display_avatar=SimpleNamespace(url='server-avatar'))
+        self.source.guild.fetch_member=AsyncMock(return_value=member)
+        self.bot.translate_on_demand=AsyncMock(return_value=TranslationResult('en','ru','Привет ' * 400))
+        delivered=await self.bot.deliver_flag_translation(self.source,[30],50,'ru')
+        self.assertTrue(delivered)
+        self.assertGreater(self.hook.send.await_count,1)
+        self.source.guild.fetch_member.assert_awaited_once_with(40)
+        for call in self.hook.send.call_args_list:
+            self.assertEqual(call.kwargs['username'],'Server nickname')
+            self.assertEqual(call.kwargs['avatar_url'],'server-avatar')
+
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.bot = TranslatorBot(Settings('test', 1, Path(self.tmp.name)/'db', 'INFO', 'http://localhost:11434', 'test', 90))
@@ -147,6 +164,16 @@ class ReactionRetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.bot.translate_content.call_count,3)
         self.hook.edit_message.assert_not_awaited()
 
+    async def test_background_retry_defers_without_spending_attempt_when_gpu_busy(self):
+        self.bot.store.link_translation(80,30,20,70,'en','ru',status='failed')
+        self.bot.store.schedule_retry(30,1,20,0)
+        self.bot.translate_content=Mock()
+        async with self.bot._translation_slots:
+            await self.bot.retry_failures()
+        self.bot.translate_content.assert_not_called()
+        self.assertEqual(self.bot.store.due_retries(time.time())[0]['attempts'],0)
+        self.hook.edit_message.assert_not_awaited()
+
     async def test_retry_cannot_publish_after_original_changes(self):
         self.bot.store.link_translation(80,30,20,70,'en','ru',status='failed')
         self.bot.store.schedule_retry(30,1,20,0)
@@ -200,10 +227,124 @@ class ReactionRetryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_repair_status_reaction_is_not_mirrored_or_a_request(self):
         self.payload.emoji='🔄'
+        self.payload.user_id=99
         await self.bot.on_raw_reaction_add(self.payload)
         await self.bot.on_raw_reaction_remove(self.payload)
         self.source.add_reaction.assert_not_awaited()
         self.hook.send.assert_not_awaited()
+
+    async def test_user_regeneration_uses_expanded_context_and_same_post(self):
+        self.payload.emoji='🔄'
+        self.bot.conversation_context = Mock(return_value='{"originals": []}')
+        self.bot.translator.translate_to = Mock(return_value=TranslationResult('en','ru','Привет'))
+        self.bot.translator.clear_cache = Mock()
+        self.bot.translator.invalidate_source = Mock()
+        async def edit(id, **kwargs):
+            self.post.content = kwargs['content']
+            return self.post
+        self.hook.edit_message.side_effect = edit
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.bot.conversation_context.assert_called_once()
+        self.assertTrue(self.bot.conversation_context.call_args.kwargs['expanded'])
+        self.bot.translator.clear_cache.assert_not_called()
+        self.bot.translator.invalidate_source.assert_called_once_with(self.source.content)
+        self.hook.edit_message.assert_awaited_once()
+        self.hook.send.assert_not_awaited()
+        self.post.add_reaction.assert_awaited_with('🔄')
+        self.assertEqual(self.post.remove_reaction.await_count,2)
+        self.source.add_reaction.assert_not_awaited()
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.bot.translator.translate_to.assert_called_once()
+
+    async def test_regeneration_failure_leaves_post_and_flags_unchanged(self):
+        self.payload.emoji='🔄'
+        self.bot.translator.translate_to=Mock(side_effect=TranslationUnavailable('bad'))
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.hook.edit_message.assert_not_awaited()
+        self.post.add_reaction.assert_awaited_once_with('⏳')
+        self.assertEqual(self.post.remove_reaction.await_count,2)
+
+    async def test_regeneration_fetches_bounded_history_when_cache_empty(self):
+        import json
+        from datetime import datetime,timezone,timedelta
+        stamp=datetime.now(timezone.utc)
+        self.source.created_at=stamp
+        previous=SimpleNamespace(id=29,content='The arm went numb.',channel=self.channel,
+            guild=self.source.guild,author=self.source.author,webhook_id=None,created_at=stamp-timedelta(seconds=2))
+        async def history(**kwargs):
+            self.assertEqual(kwargs['limit'],20)
+            self.assertEqual(kwargs['before'].id,30)
+            yield previous
+        self.channel.history=history
+        source=await self.bot.fetch_batch(self.channel,30)
+        result=json.loads(await self.bot.regeneration_context(source,'Bad previous wording'))
+        self.assertEqual(result['originals'][0]['text'],previous.content)
+        self.assertEqual(result['previous_translation'],'Bad previous wording')
+
+    async def test_regeneration_repairs_stale_source_language_routing(self):
+        self.source.content='Привет, я уже вернулась.'
+        self.payload.emoji='🔄'
+        self.bot.translator.translate_to=Mock(return_value=TranslationResult('ru','en','Hello, I am back.'))
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.bot.translator.translate_to.assert_called_once_with(self.source.content,'en','ru')
+
+    async def test_cooldown_removes_user_request_so_it_can_be_retried_later(self):
+        import time
+        self.payload.emoji='🔄'
+        self.bot._regenerated_at[(20,30)]=time.monotonic()
+        self.bot.translator.translate_to=Mock()
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.post.remove_reaction.assert_awaited_once()
+        self.bot.translator.translate_to.assert_not_called()
+
+    async def test_regeneration_on_original_updates_linked_post(self):
+        self.payload.emoji='🔄'; self.payload.message_id=30
+        self.bot.translator.translate_to=Mock(return_value=TranslationResult('en','ru','Привет'))
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.hook.edit_message.assert_awaited_once()
+        self.source.remove_reaction.assert_awaited_once()
+        self.hook.send.assert_not_awaited()
+
+    async def test_other_bots_and_unowned_webhooks_cannot_regenerate(self):
+        self.payload.emoji='🔄'; self.payload.member=SimpleNamespace(bot=True)
+        self.bot.translator.translate_to=Mock()
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.payload.member=SimpleNamespace(bot=False)
+        self.post.webhook_id=123
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.bot.translator.translate_to.assert_not_called()
+
+    async def test_regeneration_preserves_open_feedback(self):
+        self.payload.emoji='🚩'
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.payload.emoji='🔄'
+        self.bot.translator.translate_to=Mock(return_value=TranslationResult('en','ru','Привет'))
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.assertEqual(self.bot.store.open_feedback_count(1),1)
+
+    async def test_regeneration_preserves_multiple_target_languages(self):
+        self.payload.emoji='🔄'
+        self.bot.store.link_translation(80,30,20,70,'en','ru,es')
+        self.bot.translator.translate_to=Mock(side_effect=[TranslationResult('en','ru','Привет'),
+            TranslationResult('en','es','Hola')])
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.assertEqual(self.hook.edit_message.call_args.kwargs['content'], '**Russian**\nПривет\n\n**Spanish**\nHola')
+
+    async def test_duplicate_regeneration_does_not_clear_active_request(self):
+        self.payload.emoji='🔄'
+        self.bot._regenerating.add((20,30))
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.assertIn((20,30),self.bot._regenerating)
+        self.post.remove_reaction.assert_awaited_once()
+
+    async def test_regeneration_discards_result_if_original_edited(self):
+        self.payload.emoji='🔄'
+        def generate(*args):
+            self.source.content='Edited'
+            return TranslationResult('en','ru','Привет')
+        self.bot.translator.translate_to=Mock(side_effect=generate)
+        await self.bot.on_raw_reaction_add(self.payload)
+        self.hook.edit_message.assert_not_awaited()
 
     async def test_changed_post_is_not_marked_as_old_reviewed_repair(self):
         self.bot.store.add_feedback(guild_id=1,channel_id=20,source_message_id=30,
@@ -234,12 +375,12 @@ class ReactionRetryTests(unittest.IsolatedAsyncioTestCase):
 class LayoutTests(unittest.TestCase):
     def test_internal_blank_lines_and_whitespace_only_lines_use_structured_layout(self):
         t=LocalTranslator('http://localhost:11434')
-        t._request=Mock(return_value='{"part_0":"Первая строка.","part_1":"","part_2":" ","part_3":"Последняя строка."}')
+        t._request=Mock(return_value='{"part_0":"Первая строка.","part_3":"Последняя строка."}')
         result=t.translate_to('First line.\n\n \nLast line.','ru','en')
         self.assertEqual(result.text,'Первая строка.\n\n \nПоследняя строка.')
         schema=t._request.call_args.kwargs['format_schema']
-        self.assertEqual(schema['properties']['part_1']['const'],'')
-        self.assertEqual(schema['properties']['part_2']['const'],' ')
+        self.assertNotIn('part_1',schema['properties'])
+        self.assertNotIn('part_2',schema['properties'])
         t._request.assert_called_once()
 
     def test_structured_layout_rejects_missing_extra_empty_or_multiline_fields(self):
@@ -262,12 +403,12 @@ class LayoutTests(unittest.TestCase):
 
     def test_structured_empty_field_preserves_adjacent_tildes(self):
         t=LocalTranslator('http://localhost:11434')
-        t._request=Mock(return_value='{"part_0":"Подожди","part_1":"","part_2":"что?"}')
+        t._request=Mock(return_value='{"part_0":"Подожди","part_2":"что?"}')
         self.assertEqual(t.translate_to('Wait ~ ~ what?','ru','en').text,'Подожди ~ ~ что?')
 
     def test_multiple_sentences_on_one_source_line_stay_together(self):
         t=LocalTranslator('http://localhost:11434')
-        t._request=Mock(return_value="I'm not familiar with Discord. It works through a VPN.\nOnly on my phone.")
+        t._request=Mock(return_value=json.dumps({'part_0':"I'm not familiar with Discord. It works through a VPN.", 'part_1':'Only on my phone.'}))
         result=t.translate_to('Я не знаком с Дискордом. Он работает через VPN.\nТолько на телефоне.','en','ru')
         self.assertEqual(result.text.count('\n'),1)
         prompt=t._request.call_args.args[0]
@@ -290,20 +431,20 @@ class LayoutTests(unittest.TestCase):
 
     def test_trailing_tilde_is_reattached_without_splitting_context(self):
         t=LocalTranslator('http://localhost:11434')
-        t._request=Mock(return_value='Привет.\nКак дела?')
+        t._request=Mock(return_value=json.dumps({'part_0':'Привет.','part_1':'Как дела?'}))
         result=t.translate_to('Hello. ~\nHow are you?','ru','en')
         self.assertEqual(result.text,'Привет. ~\nКак дела?')
         t._request.assert_called_once()
 
     def test_italic_delimiters_and_apostrophes_are_preserved(self):
         t=LocalTranslator('http://localhost:11434')
-        t._request=Mock(return_value="*I wasn\\'t asleep.* I waited.")
+        t._request=Mock(return_value=json.dumps({'segment_1':"I wasn\\'t asleep.",'segment_4':'I waited.'}))
         result=t.translate_to('*Я не спала.* Я ждала.','en','ru')
         self.assertEqual(result.text,"*I wasn't asleep.* I waited.")
 
     def test_spoken_words_stay_outside_roleplay_italics(self):
         t=LocalTranslator('http://localhost:11434')
-        t._request=Mock(return_value='*I fell asleep, murmuring, "I am waiting for you."*')
+        t._request=Mock(return_value=json.dumps({'segment_1':'I fell asleep, murmuring','segment_4':'I am waiting for you.'}))
         result=t.translate_to('*Я уснула, пробормотав* я жду тебя.','en','ru')
         self.assertEqual(result.text,'*I fell asleep, murmuring* I am waiting for you.')
 
@@ -314,7 +455,7 @@ class LayoutTests(unittest.TestCase):
 
     def test_line_prefix_tildes_and_emoji_do_not_depend_on_neural_copying(self):
         t=LocalTranslator('http://localhost:11434')
-        t._request=Mock(return_value='Ты виноват. 🤣\nКакое расписание?')
+        t._request=Mock(return_value=json.dumps({'part_0':'Ты виноват. [[DCTOKEN_0]]','part_1':'Какое расписание?'}))
         result=t.translate_to('😏 ~ Your fault. 🤣\n~What is the schedule?','ru','en')
         self.assertEqual(result.text,'😏 ~ Ты виноват. 🤣\n~Какое расписание?')
         t._request.assert_called_once()

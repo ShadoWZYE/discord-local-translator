@@ -1,0 +1,11 @@
+Discord Translator — 27 October 2026
+
+Fixed missing translations after source-message edits. Editing an eligible
+original without a stored translation link now creates and links a translation.
+Subsequent edits update that translation in place, and existing source groups
+retain their boundaries. Disabled channels, opted-out users, commands and
+non-translatable content retain their existing exclusions.
+
+Validation: all 520 unit tests passed, including three new regressions covering
+creation, repeat edits, eligibility and grouped sources. git diff --check passed.
+Deployed by restarting only the translator scheduled task.

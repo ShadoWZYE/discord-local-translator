@@ -22,6 +22,9 @@ class Settings:
     additional_guild_ids: tuple[int, ...] = ()
     default_off_guild_ids: tuple[int, ...] = ()
     burst_window_seconds: float = 15.0
+    batch_pause_seconds: float = 0.6
+    batch_max_seconds: float = 3.0
+    ollama_num_batch: int = 128
 
     @property
     def guild_ids(self) -> tuple[int, ...]:
@@ -67,6 +70,17 @@ class Settings:
         if not 1 <= burst_window <= 600:
             raise RuntimeError("BURST_WINDOW_SECONDS must be between 1 and 600.")
 
+        try:
+            batch_pause = float(os.getenv('BATCH_PAUSE_SECONDS', '0.6'))
+            batch_max = float(os.getenv('BATCH_MAX_SECONDS', '3'))
+            num_batch = int(os.getenv('OLLAMA_NUM_BATCH', '128'))
+        except ValueError as exc:
+            raise RuntimeError('Invalid batching settings.') from exc
+        if not 0.1 <= batch_pause <= batch_max <= 5:
+            raise RuntimeError('Require 0.1 <= BATCH_PAUSE_SECONDS <= BATCH_MAX_SECONDS <= 5.')
+        if num_batch not in (64, 128, 256, 512):
+            raise RuntimeError('OLLAMA_NUM_BATCH must be 64, 128, 256, or 512.')
+
         return cls(
             discord_token=token,
             guild_id=guild_id,
@@ -78,4 +92,7 @@ class Settings:
             additional_guild_ids=additional_ids,
             default_off_guild_ids=default_off_ids,
             burst_window_seconds=burst_window,
+            batch_pause_seconds=batch_pause,
+            batch_max_seconds=batch_max,
+            ollama_num_batch=num_batch,
         )

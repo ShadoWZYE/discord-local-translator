@@ -12,6 +12,32 @@ from translator_bot.translation import LocalTranslator, TranslationUnavailable, 
 
 
 class LanguageTests(unittest.TestCase):
+    def test_arabic_source_translates_to_both_default_destinations(self):
+        text = 'مرحبا بالجميع، كيف حالكم اليوم؟'
+        self.assertEqual(direction_for(text, 'auto'), ('ar', 'en,ru'))
+        self.assertEqual(direction_for(text, 'auto', ('en', 'ru', 'ar')), ('ar', 'en,ru'))
+        self.assertIsNone(direction_for(text, 'off'))
+        translator = LocalTranslator('http://localhost:11434')
+        translator._request = Mock(side_effect=[
+            'Hello everyone, how are you today?', 'Всем привет, как вы сегодня?'])
+        result = translator.translate_languages(text, 'auto', ('en', 'ru'))
+        self.assertEqual((result.source, result.target), ('ar', 'en,ru'))
+        self.assertIn('**English**', result.text)
+        self.assertIn('**Russian**', result.text)
+        self.assertEqual(translator._request.call_count, 2)
+
+    def test_explicit_role_handles_do_not_dominate_target_validation(self):
+        source = 'Title holders: PlayerOne (Slayer), Guildfriend (Steward) and Companion (Charmer).'
+        LocalTranslator._validate_output(source,
+            'Титулы: PlayerOne (Убийца), Guildfriend (Управляющий) и Companion (Обаятель).', 'ru', 'en')
+        with self.assertRaises(TranslationUnavailable):
+            LocalTranslator._validate_output(source, source, 'ru', 'en')
+
+    def test_restrictive_only_question_has_explicit_scope_guidance(self):
+        translator = LocalTranslator('http://localhost:11434')
+        prompt = translator._prompt('Только он к нам присоединится?', 'ru', 'en')
+        self.assertIn('only/just is a meaningful restriction', prompt)
+
     def test_country_flags_are_unique_and_target_supported_languages(self):
         codes = [code for countries in COUNTRY_CODES_BY_LANGUAGE.values() for code in countries.split()]
         self.assertEqual(len(codes), len(set(codes)))

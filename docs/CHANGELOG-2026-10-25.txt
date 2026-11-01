@@ -1,0 +1,26 @@
+TRANSLATOR MAINTENANCE - 25 OCTOBER 2026
+
+- Repaired unattended reviewer startup after an application update removed the
+  version-specific executable referenced by Windows Task Scheduler.
+- Added runtime executable discovery with current-installation fallback while
+  preserving explicit working overrides, review limits and sandbox boundaries.
+- Added durable running/completed/failed reviewer status, separate from the
+  successful submission of a Windows launch request.
+- Added regression coverage for removed bundle paths, PATH-free discovery,
+  missing executables and failed process creation. Idle checks remain model-free.
+- Preserved existing cache contents, report history and native schedules.
+- Full regression suite: 512 tests passed; whitespace/diff checks passed.
+- Native Windows gate-to-reviewer startup verified against the installed CLI,
+  with successful reviewer command events rather than launch exit codes alone.
+
+CACHE AUDIT
+- Audited 1,898 saved snapshots, recent automatic reuse observations and the
+  latest 500 logged model-call timings, separating live delivery measurements
+  from historical repetition and synthetic opportunities.
+- Prompt processing averaged 2.73 seconds of 4.72 seconds model-call wall time
+  in that mixed-origin sample. Exact repeated sentence/line chunks represented
+  about 2 percent of saved source characters before linguistic scope checks.
+- Identified prompt-prefill efficiency and broader dependency-aware edit reuse
+  as higher-value investigation targets than a handful of short lexical entries.
+- No new reuse scope approved, cache cleared, service restarted or speedup
+  claimed during this audit. Prepared lexical candidates remain unapproved drafts.

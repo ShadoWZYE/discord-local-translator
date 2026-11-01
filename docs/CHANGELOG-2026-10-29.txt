@@ -1,0 +1,59 @@
+Discord Translator — 29 October 2026
+
+Translation review
+- Corrected four distinct posts covering five reports; duplicate reporters on one
+  post counted as one translation. Applied minimal, clause-reviewed corrections
+  for register, figurative meaning, source person/negation and a failure notice.
+- Used explicit human-author and user clarification where the source was
+  ambiguous. Independently verified exact live text, source grouping, attachments,
+  regeneration markers and report-flag removal.
+- Investigated one additional flag received during the review. Closed it as an
+  acceptable unchanged translation, with audited meaning and verified flag
+  cleanup. This closure is not counted as a correction or a memory approval.
+- Kept private evidence and fingerprint-bound attempt receipts under data/.
+
+Native prompt-cache improvement
+- Moved the exact human reference block before target direction, line counts and
+  source-specific hints. Consecutive target languages can share more of the native
+  prompt prefix. No source/context facts, fidelity rules or instructions were
+  removed, shortened or replaced.
+- Added regression coverage for identical reference prefixes across direction,
+  layout and guidance changes, while retaining the current source and constraints.
+- Six synthetic local-model calls compared the prior and new ordering. All three
+  matched source/target outputs were identical and separately reviewed for actor,
+  ownership, tense and negation. No live traffic interleaved with this experiment.
+- Subsequent warm target calls used 597–599 native cached tokens versus 501 with
+  the previous order. Prefill was 0.607–0.615 seconds versus 0.935–0.952 seconds.
+  The first changed-prefix call remained cold. These are small sequential
+  synthetic measurements, not a production-wide or end-to-end speedup claim.
+
+Cache and bot audit
+- Persistent-cache integrity remained OK, with approximately 3,200 entries out
+  of the 100,000 soft target. No age expiry, global clearing or broad invalidation.
+- Saved snapshot sample: 2,757 records and 2,734 distinct source/direction groups;
+  23 extra exact-source repetitions. This includes manual activity and is not a
+  live hit rate. Most whole-message requests are genuinely new source text.
+- Latest 50 automatic source-version audit: one partial-reuse inference, 48 with
+  no reuse, one failure. Miss counters include phases/targets and do not form a
+  mutually exclusive request outcome total. Repeated word overlap is not proof
+  of a safe reusable translation.
+- Separate last-50 delivery sample: 49 successful, one failed; successful mean
+  4.82 seconds and nearest-rank P95 8.56 seconds. Different request mixes prevent
+  treating this as a controlled comparison with yesterday.
+- Separate last-50 model-call sample: 126.74 seconds prefill, 64.29 generation;
+  20,009 native cached tokens out of 50,406 prompt tokens. Prefill remains a major
+  measured cost. This model-call window is not matched to the delivery window.
+- Scratch-copy SQLite read median: 1.74 ms over 100 hits. No database corruption,
+  capacity pressure or evidence justifying a more complex cache backend found.
+- The failed flagged request was rejected for softened source profanity, not an
+  emoji parsing failure. Safeguards were retained rather than weakened to improve
+  apparent delivery/cache percentages.
+
+Deployment and verification
+- All 524 unit tests passed; git diff --check passed.
+- Restarted only the translator task and verified one live worker with one fresh
+  gateway Ready. Existing persistent translations and approvals were retained.
+- Native five-minute maintenance and signed-in reviewer remain enabled. Recent
+  scheduled reviews completed with verified command and attempt receipts. The
+  old chat heartbeat remains disabled.
+- No commits, pushes, paid services, external chat uploads or global cache clears.

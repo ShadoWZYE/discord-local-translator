@@ -1,0 +1,126 @@
+LOCAL DISCORD TRANSLATOR — CHANGELOG
+24 October 2026
+
+CACHE AUDIT AND PERFORMANCE BASELINE
+- Reviewed retained delivery logs, cache hits and misses, source/output pairs,
+  repeated fragments, storage integrity, retry exhaustion and model timing.
+- Separated live deliveries from manual work, retries, probes and synthetic tests.
+- Identified cold/new requests and limited reusable scope as the main reasons
+  for low utilization; expiry and storage failures were not the main bottleneck.
+- Recorded the baseline and limitations. No post-release hit-rate improvement
+  or universal translation-accuracy claim is made yet.
+
+REUSE ARCHITECTURE
+- Added shared reuse planning across normal messages, short sentences and
+  formatted prose, including previously uncovered formatting-fallback paths.
+- Existing approved phrases can now participate in short-sentence planning.
+- Added separately reviewed lexical rules and constrained translation templates.
+- Distinguishes complete-field reuse from explicitly approved invariant words
+  embedded inside sentences; it does not translate ordinary prose word by word.
+- Uses longest-match selection, exact boundaries and fail-closed conflict handling.
+- Preserves unresolved grammatical context in a joint model request. Fully
+  covered messages can bypass inference; partial reuse omits fixed output fields.
+- Explicit regeneration bypasses reviewed reuse rules.
+
+SAFETY AND PROVENANCE
+- Added append-only rule approvals, explicit retirement records and per-request
+  receipt tracking, plus private evidence preparation and revocation commands.
+- Added cross-process dependency invalidation: revoking a lexical rule or
+  template also invalidates results derived from it.
+- Prevents in-flight generation from restoring revoked approvals.
+- Preserves unrelated cached results, existing approvals and review history.
+- Keeps private evidence and conversation-derived audit material out of public
+  documentation and external translation services.
+
+CAPACITY
+- Increased persistent result-cache capacity from 10,000 to 100,000 entries.
+- Removed persistent age-based expiry, including legacy expiry timestamps.
+- Replaced automatic persistent-result eviction with a monitored soft target.
+- Added model-free capacity checks and stable 80%, 90% and 100% review warnings.
+- Kept separate bounded RAM caches; RAM demotion does not erase stored results.
+- Added effective capacity to startup and status diagnostics.
+- Preserved all 1,699 stored results; no global cache reset was performed.
+
+OBSERVABILITY AND CONTINUOUS IMPROVEMENT
+- Added bounded hash-only request audits for model calls, token counts, timing,
+  reuse tiers, approval receipts and recurring source patterns.
+- Added word, ngram, field and identifier/number-template candidate reporting.
+- Separates probes, automatic translation, retries and manual work.
+- Added exact-source-version associations between used receipts and reported
+  translations. Associations are not causal proof or an accuracy score.
+- Extended status reporting with lexical/template lookup and audit-error counters.
+- Added daily reports through the existing native maintenance gate.
+
+AGREEMENT-BASED REVIEW SCHEDULING
+- Audited 1,502 saved source/translation snapshots and found 28 recurring groups.
+- Eight groups met the statistical threshold for review; some already had active
+  approvals. These counts describe saved observations, not independent experiments.
+- Added nomination at three distinct supporting sources and at least 95% exact
+  lexical-output agreement. Agreement never creates linguistic approval by itself.
+- The existing signed-in reviewer can process nominated scopes without waiting
+  for a flag batch, using source-first analysis, references and counterexamples.
+- Limits unattended scope review to five candidates per rolling 24 hours.
+- Requires fresh fingerprint-bound attempt receipts for job completion.
+- Approved outcomes must reference an active matching linguistic approval receipt.
+- Suppresses unchanged rejected/deferred scopes even when repetition counts grow.
+- Idle checks remain model-free; no additional recurring chat heartbeat was enabled.
+
+NEW REVIEWED MEMORY
+- Added three direction-specific complete-field lexical scopes:
+  Russian Почему -> English Why; Russian Нет -> English No;
+  English No -> Russian Нет.
+- Verified scope using source-first analysis, independent public references and
+  counterexamples. These approvals do not authorize arbitrary substring reuse.
+- Deferred two ambiguous scopes instead of promoting them from agreement alone.
+- Durable approved memory increased from six to nine units.
+- Added two separately reviewed, case-specific embedded rules for the Russian
+  causal conjunction corresponding to English because. Both surrounding clauses
+  retain joint inference; punctuation variants, code and URLs remain excluded.
+- No real identifier-template family met the review criteria; none was invented
+  or approved merely to increase cache utilization.
+
+VERIFICATION AND DEPLOYMENT
+- Refined fragment completeness: absent final punctuation no longer implies an
+  unfinished clause; dangling words, continuations and grammatical dependencies
+  remain guarded. Newly eligible prose retains exact context and parent scope.
+- Expanded private mining to within-field multiword phrases and constrained
+  bilingual identifier constructions without guessed target-substring alignment.
+- Connected construction nominations to the existing bounded review scheduler;
+  agreement still cannot create a linguistic approval.
+- Added recent automatic cache-decision diagnostics, separate from historical
+  host totals and successful-delivery metrics, with phase/attempt deduplication.
+- Full regression suite: 507 tests passed; whitespace/diff checks passed.
+- Added retention regressions for legacy timestamps, clock jumps, restarts,
+  capacity pressure and targeted invalidation without unrelated data loss.
+- Synthetic tests cover reuse through formatting, constrained templates,
+  unsupported slots, negation changes, regeneration and concurrent revocation.
+- Six formatted constructions resolved from existing approvals with zero model
+  calls in a disposable cache copy, taking approximately 22-41 ms locally.
+- Three newly approved lexical scopes also passed cache-only output checks with
+  zero model calls; a broken-phrase counterexample correctly missed.
+- Synthetic checks are not a measured live hit rate or end-to-end speedup.
+- On 1,506 saved snapshots, context-bound grammatical eligibility increased
+  from 74 to 151; this does not make those texts globally portable.
+- Disposable-cache planning identified reviewed connector reuse in 37 saved
+  source snapshots. A mocked end-to-end check preserved negation with one dynamic
+  request; this is not a measured live delivery improvement.
+- One short synthetic causal sentence also passed source-first review using the
+  actual local model: one model request, ten source characters reused, 2.563 s
+  wall time. This is neither a live delivery sample nor a comparative speedup.
+- Deployed by restarting only the translator task and verifying one fresh
+  gateway Ready, one network worker and healthy cache integrity.
+- No new paid services, server migrations, commits or pushes were introduced.
+
+ADDITIONAL FLAG REVIEW
+- Completed a further manual flag batch: six distinct posts corrected, covering
+  seven reports including duplicate reporters on one post. Clarified ambiguous
+  intent before correction; verified exact live output, regeneration markers,
+  unchanged grouping/attachments and flag removal from posts and originals.
+- These were instance-specific corrections, not new portable cache approvals;
+  no additional model replay, production-code change or speedup was claimed.
+
+KNOWN LIMITS
+- New or ambiguous language can still require full grammatical context and model
+  inference. A partial cache hit does not necessarily reduce prompt-processing cost.
+- Repeated model agreement can reproduce the same error. Review scope and
+  counterexamples remain necessary before broader reuse is enabled.

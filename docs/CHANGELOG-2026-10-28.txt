@@ -1,0 +1,54 @@
+Discord Translator — 28 October 2026
+
+Translation review
+- Corrected 12 flagged posts in two review batches, including one new report
+  received during the review. Ambiguous wording and names were clarified with
+  the user before those corrections were approved.
+- Independently verified exact live output, source/group boundaries, attachments,
+  bot regeneration markers and report-flag removal. No reports remain pending.
+- Saved private clause-level evidence and fingerprint-bound attempt receipts.
+  Contextual corrections were not promoted into broadly reusable memory.
+
+Cache and fast-path improvements
+- Known deterministic local renderings now run before SQLite lookups and the GPU
+  queue, including their first use. They no longer need an earlier generated
+  result to avoid a busy GPU slot.
+- Added bounded whole-message purr rendering with preserved letter count, case,
+  punctuation and emoji. Words, handles, commands, links and mixed prose are
+  excluded. Existing meow and other local-rendering safeguards remain in force.
+- Processing status now identifies local fast-path origins separately from RAM,
+  SQLite and assembled-cache origins. Local renderings are not presented as
+  stored translation-cache hits.
+- Separately approved two exact complete-field lexical memory scopes. Verified
+  persistent lookup under unrelated synthetic context and refusal of three
+  unapproved counterexamples, with no model calls.
+- Retained the 100,000-entry soft target, no age expiry, and targeted invalidation.
+  No global cache clearing or speculative embedded-word promotion occurred.
+
+Audit findings — before deployment
+- Cache integrity: OK; approximately 3,000 retained results, about 3% of capacity.
+- Saved snapshots: 2,573 records, 2,550 distinct exact source/direction groups,
+  and 23 additional exact-source repetitions. Saved snapshots include manual
+  activity; these are not automatic delivery hit-rate measurements.
+- Latest 50 inference records: 48 cold source misses, one source invalidation,
+  one changed-key miss. Repeated word overlap is not proof of safe translation
+  reuse; common words often depend on grammar, referents or sense.
+- Separate 50-call runtime sample: 90.37 seconds of prefill and 27.16 seconds of
+  generation. Native cached prompt tokens: 22,139 of 43,951 prompt tokens.
+  Prefill is the larger remaining measured model cost.
+- Separate last-50 delivery sample: 49 successful, one failed; successful mean
+  4.62 seconds and nearest-rank P95 7.62 seconds. These windows are not matched causal samples.
+- Synthetic scratch-copy SQLite hit median: 1.58 ms over 100 reads. Synthetic
+  local-render median: 0.095 ms over 100 requests. These figures do not establish
+  an end-to-end production speedup.
+
+Maintenance and validation
+- Native five-minute Maintenance Gate and signed-in reviewer remain enabled.
+  Recent reviewer runs completed with command and attempt-receipt verification.
+  Older open flags had been suppressed pending clarification; the scheduler was
+  not stopped. The old chat heartbeat remains disabled.
+- All 523 unit tests passed; git diff --check passed. Regression coverage includes
+  cold local results while the GPU slot is occupied and lexical counterexamples.
+- Deployed by restarting only the translator task. Deployment health is recorded
+  privately after verifying one live worker and one fresh gateway Ready.
+- No production latency improvement is claimed from the synthetic checks.

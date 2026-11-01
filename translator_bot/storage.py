@@ -24,6 +24,12 @@ class SettingsStore:
             self._connection.executescript(
                 """
                 PRAGMA journal_mode=WAL;
+                CREATE TABLE IF NOT EXISTS poll_sources (source_id INTEGER PRIMARY KEY, signature TEXT NOT NULL DEFAULT '');
+                CREATE TABLE IF NOT EXISTS translation_snapshots (
+                    source_id INTEGER PRIMARY KEY, source_text TEXT NOT NULL,
+                    source_language TEXT NOT NULL, target_language TEXT NOT NULL,
+                    translated_text TEXT NOT NULL, policy TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS feedback_flag_cleanup (feedback_id INTEGER PRIMARY KEY, next_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS feedback_history (feedback_id INTEGER PRIMARY KEY, record_json TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS feedback_reactions (
@@ -97,7 +103,7 @@ class SettingsStore:
                     translated_text TEXT NOT NULL,
                     corrected_text TEXT,
                     note TEXT,
-                    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'reviewed', 'applied', 'rejected')),
+                    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'reviewed', 'applied', 'rejected', 'closed_no_change', 'obsolete')),
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (translation_message_id, reporter_id)
                 );
@@ -115,10 +121,11 @@ class SettingsStore:
             schema = self._connection.execute(
                 "SELECT sql FROM sqlite_master WHERE name = 'translation_feedback'"
             ).fetchone()[0]
-            if "CHECK(source_language IN" in schema:
+            if "CHECK(source_language IN" in schema or "'closed_no_change'" not in schema:
                 upgraded = schema.replace('translation_feedback', 'translation_feedback_upgrade', 1)
                 upgraded = upgraded.replace(" CHECK(source_language IN ('en', 'ru'))", '')
                 upgraded = upgraded.replace(" CHECK(target_language IN ('en', 'ru'))", '')
+                upgraded = upgraded.replace("'applied', 'rejected'", "'applied', 'rejected', 'closed_no_change', 'obsolete'")
                 self._connection.execute(upgraded)
                 self._connection.execute('INSERT INTO translation_feedback_upgrade SELECT * FROM translation_feedback')
                 self._connection.execute('DROP TABLE translation_feedback')
@@ -190,6 +197,15 @@ class SettingsStore:
             )
             self._connection.execute("INSERT OR IGNORE INTO message_batches VALUES (?, ?)", (source_id, source_id))
 
+    def poll_signature(self, source_id):
+        with self._lock:
+            row=self._connection.execute('SELECT signature FROM poll_sources WHERE source_id=?',(source_id,)).fetchone()
+            return row[0] if row else None
+
+    def mark_poll(self, source_id, signature=''):
+        with self._lock,self._connection:
+            self._connection.execute('INSERT OR REPLACE INTO poll_sources VALUES (?,?)',(source_id,signature))
+
     def add_batch_source(self, source_id: int, batch_id: int) -> None:
         with self._lock, self._connection:
             self._connection.execute("INSERT OR REPLACE INTO message_batches VALUES (?, ?)", (source_id, batch_id))
@@ -245,6 +261,15 @@ class SettingsStore:
                 "ORDER BY translation_message_id",
                 (source_id, source_id),
             ).fetchall()
+
+    def translation_snapshot(self,source_id):
+        with self._lock:
+            return self._connection.execute('SELECT * FROM translation_snapshots WHERE source_id=?',(source_id,)).fetchone()
+
+    def save_translation_snapshot(self,source_id,source_text,source,target,text,policy):
+        with self._lock,self._connection:
+            self._connection.execute('INSERT OR REPLACE INTO translation_snapshots VALUES (?,?,?,?,?,?)',
+                (source_id,source_text,source,target,text,policy))
 
     def unlink_translation(self, translation_id: int) -> None:
         with self._lock, self._connection:

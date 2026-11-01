@@ -40,6 +40,7 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.hook.edit_message.call_args.kwargs['content'], 'Привет')
         self.assertEqual(kwargs['username'], 'Alice')
         self.assertNotIn('reference', kwargs)
+
         self.assertFalse(kwargs['allowed_mentions'].everyone)
         self.bot.store.close()
         self.bot.store = SettingsStore(Path(self.tmp.name) / 'test.db')
@@ -54,10 +55,65 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
         await self.bot.on_raw_reaction_remove(payload)
         self.assertEqual(self.bot.store.open_feedback_count(1), 0)
 
+    async def test_validated_cache_hit_delivers_while_gpu_slot_is_busy(self):
+        translator = self.bot.translator
+        translator._translate_uncached = Mock(return_value=SimpleNamespace(source='en', target='ru', text='Привет'))
+        with translator.conversation_context(self.bot.conversation_context(self.message)):
+            translator.translate_to('Hello', 'ru', 'en')
+        translator.translate = Mock(side_effect=AssertionError('Cache hit must not generate'))
+        await self.bot._translation_slots.acquire()
+        try:
+            await asyncio.wait_for(self.bot.on_message(self.message), timeout=2)
+            self.assertEqual(self.hook.edit_message.call_args.kwargs['content'], 'Привет')
+            self.assertTrue(self.bot._translation_slots.locked())
+            translator.translate.assert_not_called()
+        finally:
+            self.bot._translation_slots.release()
+
     async def test_webhook_posts_never_retranslate(self):
         self.message.webhook_id = 70
         await self.bot.on_message(self.message)
         self.hook.send.assert_not_awaited()
+
+    async def test_cold_local_sound_delivers_while_gpu_slot_is_busy(self):
+        self.message.content='Mrrrr! 😺'
+        self.bot.translator._request=Mock(side_effect=AssertionError('No model needed'))
+        await self.bot._translation_slots.acquire()
+        try:
+            await asyncio.wait_for(self.bot.on_message(self.message),timeout=2)
+            self.assertEqual(self.hook.edit_message.call_args.kwargs['content'],'Мрррр! 😺')
+            self.assertTrue(self.bot._translation_slots.locked())
+            self.assertEqual(self.bot.translator._cache_stats['lookup_local_hits'],1)
+        finally:
+            self.bot._translation_slots.release()
+
+    async def test_historical_user_resolves_server_nickname_and_avatar(self):
+        author = Mock(spec=discord.User)
+        author.id = 40
+        author.display_name = 'Account name'
+        author.display_avatar = SimpleNamespace(url='account-avatar')
+        self.message.author = author
+        member = SimpleNamespace(display_name='Server nickname', display_avatar=SimpleNamespace(url='server-avatar'))
+        self.message.guild.fetch_member = AsyncMock(return_value=member)
+        await self.bot.publish_translation(self.message, SimpleNamespace(source='en',target='ru',text='Привет'))
+        self.message.guild.fetch_member.assert_awaited_once_with(40)
+        self.assertEqual(self.hook.send.call_args.kwargs['username'], 'Server nickname')
+        self.assertEqual(self.hook.send.call_args.kwargs['avatar_url'], 'server-avatar')
+
+    async def test_music_commands_do_not_post_placeholders_or_join_bursts(self):
+        for text in ('-p Song title', '-fp Song title', '-pf Song title', '-fix', '/play Song title', '-pl-savequeue test'):
+            self.message.content = text
+            await self.bot.on_message(self.message)
+        self.hook.send.assert_not_awaited()
+        self.assertFalse(self.bot._batches)
+        self.message.content = 'Hello'
+        await self.bot.on_message(self.message)
+        batch = self.bot._batches[(1, 20, 40)]
+        self.message.content = '-fp Another song'
+        await self.bot.on_message(self.message)
+        self.assertTrue(batch.closed)
+        self.assertFalse(batch.accepting)
+        self.assertEqual(len(batch.messages), 1)
 
     async def test_second_server_defaults_off_and_enabling_is_per_channel(self):
         self.message.guild.id = 2
@@ -108,6 +164,114 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
         await self.bot.on_raw_message_edit(SimpleNamespace(
             guild_id=1, channel_id=20, message_id=30, data={'embeds': []}))
         self.bot.translation_webhook.assert_not_awaited()
+
+    async def test_edit_without_link_creates_durable_translation(self):
+        self.message.content = 'Hello again'
+        self.channel.fetch_message = AsyncMock(return_value=self.message)
+        self.bot.get_channel = lambda _: self.channel
+        payload = SimpleNamespace(guild_id=1, channel_id=20, message_id=30,
+                                  data={'content': self.message.content})
+        await self.bot.on_raw_message_edit(payload)
+        self.hook.send.assert_awaited_once()
+        self.assertEqual(self.hook.send.call_args.args, ('Привет',))
+        self.assertEqual(self.bot.store.get_translation_link(80)['source_message_id'], 30)
+        await self.bot.on_raw_message_edit(payload)
+        self.hook.send.assert_awaited_once()
+        self.hook.edit_message.assert_awaited_once()
+
+    async def test_unlinked_edits_respect_translation_eligibility(self):
+        self.channel.fetch_message = AsyncMock(return_value=self.message)
+        self.bot.get_channel = lambda _: self.channel
+        self.bot.translate_message = AsyncMock()
+        payload = SimpleNamespace(guild_id=1, channel_id=20, message_id=30,
+                                  data={'content': 'changed'})
+        for content in ('', '😀', '-p Song title'):
+            self.message.content = content
+            await self.bot.on_raw_message_edit(payload)
+        self.message.content = 'Hello again'
+        self.bot.store.set_user_mode(1, 40, 'off')
+        await self.bot.on_raw_message_edit(payload)
+        self.bot.store.set_user_mode(1, 40, 'auto')
+        self.bot.store.set_channel_enabled(1, 20, False)
+        await self.bot.on_raw_message_edit(payload)
+        self.bot.translate_message.assert_not_awaited()
+        self.hook.send.assert_not_awaited()
+
+    async def test_unlinked_group_edit_preserves_all_sources(self):
+        second = SimpleNamespace(**vars(self.message))
+        second.id, second.content = 31, 'A continuation'
+        self.bot.store.add_batch_source(30, 30)
+        self.bot.store.add_batch_source(31, 30)
+        self.channel.fetch_message = AsyncMock(side_effect=lambda source_id:
+                                               {30: self.message, 31: second}[source_id])
+        self.bot.get_channel = lambda _: self.channel
+        self.bot.translator.translate = Mock(return_value=SimpleNamespace(
+            source='en', target='ru', text='Полный текст'))
+        await self.bot.on_raw_message_edit(SimpleNamespace(guild_id=1, channel_id=20,
+            message_id=31, data={'content': second.content}))
+        self.bot.translator.translate.assert_called_once_with('Hello\nA continuation', 'auto')
+        self.assertEqual(self.bot.store.get_translation_link(80)['source_message_id'], 30)
+        self.assertEqual(self.bot.store.get_batch_sources(30), [30, 31])
+
+    async def test_queued_edits_generate_latest_version_only(self):
+        self.bot.store.link_translation(80,30,20,70,'en','ru')
+        self.channel.fetch_message = AsyncMock(return_value=self.message)
+        self.bot.get_channel = lambda _: self.channel
+        self.bot.translator.translate = Mock(return_value=SimpleNamespace(source='en',target='ru',text='Последняя версия'))
+        await self.bot._translation_slots.acquire()
+        tasks = []
+        try:
+            for content in ('First edit', 'Second edit', 'Latest edit'):
+                self.message.content = content
+                tasks.append(asyncio.create_task(self.bot.on_raw_message_edit(SimpleNamespace(
+                    guild_id=1,channel_id=20,message_id=30,data={'content':content}))))
+                await asyncio.sleep(0)
+        finally:
+            self.bot._translation_slots.release()
+            await asyncio.gather(*tasks)
+        self.bot.translator.translate.assert_called_once_with('Latest edit','auto')
+        self.hook.edit_message.assert_awaited_once()
+        self.assertEqual(self.bot._pending_edits,{})
+
+    async def test_group_extended_while_queued_generates_full_latest_text_once(self):
+        sent = asyncio.Event()
+        async def post(*args, **kwargs):
+            sent.set()
+            return SimpleNamespace(id=80)
+        self.hook.send.side_effect = post
+        self.bot.translator.translate = Mock(return_value=SimpleNamespace(source='en',target='ru',text='Полный текст'))
+        second = SimpleNamespace(**vars(self.message))
+        second.id, second.content = 31, 'A continuation'
+        await self.bot._translation_slots.acquire()
+        first_task = asyncio.create_task(self.bot.on_message(self.message))
+        second_task = None
+        try:
+            await asyncio.wait_for(sent.wait(),timeout=2)
+            second_task = asyncio.create_task(self.bot.on_message(second))
+            await asyncio.sleep(0)
+        finally:
+            self.bot._translation_slots.release()
+            await first_task
+            if second_task is not None:
+                await second_task
+        self.bot.translator.translate.assert_called_once_with('Hello\nA continuation','auto')
+
+    async def test_queued_edit_deleted_before_generation_is_skipped(self):
+        self.bot.store.link_translation(80,30,20,70,'en','ru')
+        self.channel.fetch_message = AsyncMock(return_value=self.message)
+        self.bot.get_channel = lambda _: self.channel
+        self.bot.translator.translate = Mock()
+        await self.bot._translation_slots.acquire()
+        task = asyncio.create_task(self.bot.on_raw_message_edit(SimpleNamespace(
+            guild_id=1,channel_id=20,message_id=30,data={'content':'Edited'})))
+        try:
+            await asyncio.sleep(0)
+            await self.bot.on_raw_message_delete(SimpleNamespace(guild_id=1,channel_id=20,message_id=30))
+        finally:
+            self.bot._translation_slots.release()
+            await task
+        self.bot.translator.translate.assert_not_called()
+        self.assertEqual(self.bot._pending_edits,{})
 
     async def test_original_delete_removes_all_chunks_even_with_channel_disabled(self):
         await self.bot.on_message(self.message)
@@ -208,7 +372,7 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
         second = SimpleNamespace(**vars(self.message))
         second.id, second.content = 31, 'Surviving text'
         def translate(text, mode):
-            if text == 'Hello Surviving text':
+            if text == 'Hello\nSurviving text':
                 entered.set()
                 release.wait(timeout=3)
                 return SimpleNamespace(source='en', target='ru', text='Устаревший текст')
@@ -337,7 +501,7 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
         await first_task
         self.assertEqual(self.hook.send.await_count, 2)
         self.hook.delete_message.assert_awaited_once_with(80)
-        self.bot.translator.translate.assert_called_once_with('Hello How are you?', 'auto')
+        self.bot.translator.translate.assert_called_once_with('Hello\nHow are you?', 'auto')
         self.assertEqual(self.bot.store.get_source_links(31)[0]['translation_message_id'], 81)
         self.assertEqual(self.bot.store.get_batch_sources(30), [30, 31])
 
@@ -349,7 +513,7 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
         self.bot.get_channel = lambda _: self.channel
         await self.bot.on_raw_message_edit(SimpleNamespace(guild_id=1, channel_id=20, message_id=31,
                                                           data={'content': second.content}))
-        self.assertEqual(self.bot.translator.translate.call_args.args[0], 'Hello How are things?')
+        self.assertEqual(self.bot.translator.translate.call_args.args[0], 'Hello\nHow are things?')
         self.assertEqual(self.hook.send.await_count, 2)
 
         # Reporting a group stores all source messages, not just the first one.
@@ -406,7 +570,7 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
         second.id, second.content = 31, 'One more thing'
         await self.bot.on_message(second)
         self.assertEqual(operations, [('send', 80), ('send', 81), ('delete', 80)])
-        self.assertEqual(self.bot.translator.translate.call_args.args[0], 'Hello One more thing')
+        self.assertEqual(self.bot.translator.translate.call_args.args[0], 'Hello\nOne more thing')
         self.assertEqual(self.bot.store.get_source_links(30)[0]['translation_message_id'], 81)
         self.assertEqual(self.bot.store.get_source_links(31)[0]['translation_message_id'], 81)
 
@@ -479,14 +643,14 @@ class WebhookTests(unittest.IsolatedAsyncioTestCase):
         self.hook.delete_message.assert_not_awaited()
         self.assertEqual(self.bot.store.get_source_links(30)[0]['translation_message_id'], 80)
 
-    async def test_split_sentence_becomes_continuous_text_without_losing_real_newlines(self):
+    async def test_split_sentence_keeps_display_boundaries_with_shared_context(self):
         messages = []
         for index, text in enumerate(('Do not cancel', 'the order until', 'the supplier confirms.\nThen let me know.')):
             message = SimpleNamespace(**vars(self.message))
             message.id, message.content = 30 + index, text
             messages.append(message)
         self.assertEqual(combined_message(messages).content,
-                         'Do not cancel the order until the supplier confirms.\nThen let me know.')
+                         'Do not cancel\nthe order until\nthe supplier confirms.\nThen let me know.')
         self.assertEqual(combined_message(messages, separator='\n').content,
                          'Do not cancel\nthe order until\nthe supplier confirms.\nThen let me know.')
 
