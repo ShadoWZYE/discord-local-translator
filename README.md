@@ -1,7 +1,7 @@
-# Local English ↔ Russian Discord Translator
+# Local Multilingual Discord Translator
 
 A self-hosted Discord bot with a Windows setup workflow. It detects
-English/Russian messages, translates them with a local TranslateGemma 12B model, and posts a
+messages in configured languages, translates them with a local TranslateGemma 12B model, and posts a
 compact webhook message with the sender's name and avatar, without a reply preview,
 language flag, or ping. The original message remains intact. Discord still displays its APP badge.
 The webhook first posts **Перевожу…** for Russian output or **Translating…** for
@@ -13,6 +13,14 @@ Failed automatic translations add a bot-owned 🚩 and a persistent review recor
 Successful recovery resolves only that automatic record and removes only the
 bot's flag; user reports remain for review. Missing reaction permissions do not
 discard the report or stop retries.
+
+## Language support
+
+English and Russian are the default pair, not the full scope. The language registry currently offers **23 selectable languages**: English (en), Russian (ru), Romanian (ro), French (fr), German (de), Spanish (es), Italian (it), Portuguese (pt), Dutch (nl), Polish (pl), Ukrainian (uk), Turkish (tr), Czech (cs), Greek (el), Swedish (sv), Finnish (fi), Hungarian (hu), Bulgarian (bg), Arabic (ar), Hebrew (he), Japanese (ja), Korean (ko), and Chinese Simplified (zh).
+
+Use `/translate-languages languages:en,ru,ro` to configure a channel's automatic language set. Country-flag reactions request translations into supported target languages; flags are shortcuts, not language detection. Language choices are defined in `translator_bot/languages.py`. Selectable support does not mean every language pair has equal quality validation; the pair-specific English/Russian safeguards documented below remain relevant.
+
+## Message handling
 
 Carl-bot numbered reaction polls have a narrow exception to the bot-message skip:
 only Carl's verified numeric author ID and recognized consecutive 1–10 choice
